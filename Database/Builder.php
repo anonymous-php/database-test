@@ -67,7 +67,13 @@ class Builder implements BuilderInterface
             return preg_quote($specificator, '/');
         }, $keys));
 
-        return preg_replace_callback('/(' . $pattern . ')/', function ($match) use (&$args) {
+        $exception = new BuilderException('Count of specificators doesn\'t equal count of arguments');
+
+        $query = preg_replace_callback('/(' . $pattern . ')/', function ($match) use (&$args, $exception) {
+            if (count($args) === 0) {
+                throw $exception;
+            }
+
             $value = array_shift($args);
             $name = $match[0][0];
 
@@ -76,6 +82,12 @@ class Builder implements BuilderInterface
 
             return $specificator->getValue();
         }, $query, -1, $count, PREG_OFFSET_CAPTURE);
+
+        if (count($args) > 0) {
+            throw $exception;
+        }
+
+        return $query;
     }
 
     private function applyBlocks(string $query): string
