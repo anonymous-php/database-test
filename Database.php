@@ -2,10 +2,9 @@
 
 namespace FpDbTest;
 
+use FpDbTest\Database\Block;
 use FpDbTest\Database\Builder;
 use FpDbTest\Database\BuilderFactory;
-use FpDbTest\Database\Skip;
-use FpDbTest\Database\Specificators\AbstractSpecificator;
 use mysqli;
 
 class Database implements DatabaseInterface
@@ -27,6 +26,6 @@ class Database implements DatabaseInterface
 
     public function skip()
     {
-        return AbstractSpecificator::SKIP;
+        return Block::SKIP;
     }
 }

@@ -7,6 +7,9 @@ namespace FpDbTest\Database;
 class Block implements BlockInterface
 {
 
+    public const SKIP = "\0s\0";
+
+
     private mixed $value;
 
     private string $query;

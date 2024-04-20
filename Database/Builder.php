@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace FpDbTest\Database;
 
 
-use FpDbTest\Database\Specificators\AbstractSpecificator;
 use FpDbTest\Database\Specificators\SpecificatorFactory;
 use FpDbTest\Database\Specificators\SpecificatorFactoryInterface;
 use mysqli;
@@ -35,7 +34,7 @@ class Builder implements BuilderInterface
         $query = $this->applyBlocks($query);
         $query = $this->applyLiterals($query, $literals);
 
-        if (str_contains($query, AbstractSpecificator::SKIP)) {
+        if (str_contains($query, Block::SKIP)) {
             throw new BuilderException('Skip value outside blocks');
         }
 
@@ -94,7 +93,7 @@ class Builder implements BuilderInterface
     {
         do {
             $query = preg_replace_callback('/\{((?!(\{|\})).)*\}/ms', function ($match) {
-                if (str_contains($match[0], AbstractSpecificator::SKIP)) {
+                if (str_contains($match[0], Block::SKIP)) {
                     return '';
                 }
 

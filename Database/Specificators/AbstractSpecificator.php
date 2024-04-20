@@ -10,7 +10,6 @@ use mysqli;
 abstract class AbstractSpecificator extends Block implements SpecificatorInterface
 {
 
-    public const SKIP = "\0s\0";
     protected ?mysqli $mysqli;
 
 
@@ -22,7 +21,7 @@ abstract class AbstractSpecificator extends Block implements SpecificatorInterfa
         $this->mysqli = $mysqli;
 
         switch (true) {
-            case self::SKIP === $value:
+            case Block::SKIP === $value:
                 $this->setValue($value);
                 break;
 
