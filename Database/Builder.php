@@ -4,10 +4,9 @@ declare(strict_types=1);
 namespace FpDbTest\Database;
 
 
-use FpDbTest\Database\Specificators\BuilderSpecificatorException;
+use FpDbTest\Database\Specificators\AbstractSpecificator;
 use FpDbTest\Database\Specificators\SpecificatorFactory;
 use FpDbTest\Database\Specificators\SpecificatorFactoryInterface;
-use FpDbTest\Database\Specificators\SpecificatorInterface;
 use mysqli;
 
 class Builder implements BuilderInterface
@@ -31,65 +30,34 @@ class Builder implements BuilderInterface
             return $query;
         }
 
-        return $this->buildQueryInternal($query, $args);
+        $query = $this->escapeLiterals($query, $literals);
+        $query = $this->applySpecificators($query, $args);
+        $query = $this->applyBlocks($query);
+        $query = $this->applyLiterals($query, $literals);
+
+        if (str_contains($query, AbstractSpecificator::SKIP)) {
+            throw new BuilderException('Skip value outside blocks');
+        }
+
+        return $query;
     }
 
-    private function buildQueryInternal(string $query, array $args = [], int $level = 0): string
+    public function escapeLiterals(string $query, ?array &$literals = []): string
     {
-        $specificators = $this->getSpecificators($query);
+        $literals = [];
 
-        if (count($specificators) !== count($args)) {
-            throw new BuilderException('Count of specificators doesn\'t equal count of arguments');
-        }
-
-        $block = $this->getBlock($query);
-
-        if (null !== $block) {
-            $blockArgs = [];
-            foreach ($specificators as $k => $specificator) {
-                if ($specificator->isIntersect($block)) {
-                    $blockArgs[] = $args[$k];
-                    unset($specificators[$k], $args[$k]);
-                }
-            }
-
-            $query = substr($query, 0, $block->getOffset())
-                . $this->buildQueryInternal(substr($block->getQuery(), 1, -1), $blockArgs, $level + 1)
-                . substr($query, $block->getOffset() + $block->getLength());
-
-            return $this->buildQueryInternal($query, $args);
-        }
-
-        if (count($specificators) === 0) {
-            return $query;
-        }
-
-        $specificator = array_shift($specificators);
-        $specificator->resolve(array_shift($args), $this->mysqli);
-
-        $value = $specificator->getValue();
-
-        if ($value instanceof Skip) {
-            if (0 === $level) {
-                throw new BuilderSpecificatorException($specificator, 'Skip value outside block');
-            }
-
-            return '';
-        }
-
-        $query = substr($query, 0, $specificator->getOffset())
-            . $value
-            . substr($query, $specificator->getOffset() + $specificator->getLength());
-
-        return count($specificators)
-            ? $this->buildQueryInternal($query, $args)
-            : $query;
+        return preg_replace_callback(
+            '/((\"\")|(\".*?[^\\\]\"))|((\\\'\\\')|(\\\'.*?[^\\\]\\\'))/ms',
+            function ($match) use (&$literals) {
+                $i = count($literals);
+                $literals[$i] = $match[0];
+                return sprintf("\0%d\0", $i);
+            },
+            $query,
+        );
     }
 
-    /**
-     * @return SpecificatorInterface[]
-     */
-    private function getSpecificators(string $query): array
+    private function applySpecificators(string $query, array $args): string
     {
         $keys = array_keys($this->definitions);
 
@@ -99,51 +67,37 @@ class Builder implements BuilderInterface
             return preg_quote($specificator, '/');
         }, $keys));
 
-        if (!preg_match_all("/({$pattern})/ms", $this->escapeLiterals($query), $matches, PREG_OFFSET_CAPTURE)) {
-            return [];
-        }
+        return preg_replace_callback('/(' . $pattern . ')/', function ($match) use (&$args) {
+            $value = array_shift($args);
+            $name = $match[0][0];
 
-        $specificators = [];
+            $specificator = $this->specificatorFactory->createSpecificator($this->definitions[$name], $name, $match[0][1]);
+            $specificator->resolve($value, $this->mysqli);
 
-        foreach ($matches[0] as $match) {
-            $specificators[] = $this->createSpecificator($match[0], $match[1]);
-        }
-
-        return $specificators;
+            return $specificator->getValue();
+        }, $query, -1, $count, PREG_OFFSET_CAPTURE);
     }
 
-    private function escapeLiterals(string $query): string
+    private function applyBlocks(string $query): string
     {
-        if (!preg_match_all('/((\"\")|(\".*?[^\\\]\"))|((\\\'\\\')|(\\\'.*?[^\\\]\\\'))/ms', $query, $matches, PREG_OFFSET_CAPTURE)) {
-            return $query;
-        }
+        do {
+            $query = preg_replace_callback('/\{((?!(\{|\})).)*\}/ms', function ($match) {
+                if (str_contains($match[0], AbstractSpecificator::SKIP)) {
+                    return '';
+                }
 
-        foreach ($matches[0] as $match) {
-            $length = strlen($match[0]);
-
-            $query = substr($query, 0, $match[1])
-                . str_pad('', $length, chr(0))
-                . substr($query, $match[1] + $length);
-        }
+                return substr($match[0], 1, -1);
+            }, $query, -1, $count);
+        } while ($count > 0);
 
         return $query;
     }
 
-    private function createSpecificator(string $specificator, int $offset): SpecificatorInterface
+    private function applyLiterals(string $query, array $literals): string
     {
-        return $this->specificatorFactory
-            ->createSpecificator($this->definitions[$specificator], $specificator, $offset, strlen($specificator));
-    }
-
-    private function getBlock(string $query): ?BlockInterface
-    {
-        if (!preg_match('/\{((?!(\{|\})).)*\}/ms', $this->escapeLiterals($query), $matches, PREG_OFFSET_CAPTURE)) {
-            return null;
-        }
-
-        $offset = (int)$matches[0][1];
-
-        return new Block(substr($query, $offset, strlen($matches[0][0])), $offset, strlen($matches[0][0]));
+        return preg_replace_callback("/\0\d+\0/ms", function ($match) use ($literals) {
+            return $literals[trim($match[0], "\0")];
+        }, $query);
     }
 
 }
